@@ -436,6 +436,7 @@ static __attribute__((section(".irom0.text"))) void currentCheck(uint16 const ad
 static __attribute__((section(".irom0.text"))) void transitionToOpen(uint32 const currMsTick) {
     debugLog("Opened waiting for movement or timeout");
     activeEventStartTick = currMsTick;
+    openEventStartTick = currMsTick;
     eastGateEventStartTick = currMsTick;
     westGateEventStartTick = currMsTick;
     if((mainState & EAST_ONLY) == EAST_ONLY) {
