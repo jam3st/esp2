@@ -356,8 +356,8 @@ static __attribute__((section(".irom0.text"))) uint8 getSensors() {
 
 static __attribute__((section(".irom0.text"))) uint8 getDebouncedFilteredSensors() {
 // Must be odd
-    enum { NumFilt = 15u};
-    const uint8 MidSetCountThreshold =  6 * NumFilt / 7u + 1u;
+    enum { NumFilt = 23u};
+    const uint8 MidSetCountThreshold =  7 * NumFilt / 8u + 1u;
     const uint8 IrCountThreshold = 3; // Safety first
     static uint8 lastSensorPos = 0;
     static uint8 sensors[NumFilt] = { 0 };
