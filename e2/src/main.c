@@ -70,7 +70,7 @@ static bool insideSensorTriggered = FALSE;
 static bool frontSensorTriggered = FALSE;
 static bool NoWaitForPause = FALSE;
 
-static const uint16 IdleThreshold = 700u;
+static const uint16 IdleThreshold = 675u;
 static const uint16 SingleRunThreshold = 450u;
 static const uint16 SingleStartThreshold = 400u;
 static const uint16 SingleStartOneRunThreshold = 300u;
@@ -205,7 +205,7 @@ static void closeEast() {
 
 static __attribute__((section(".irom0.text"))) uint16 getAndUpdateMedianFilteredAdc(bool reset) {
 // Must be odd
-    enum { NumAdc =  13u};
+    enum { NumAdc =  19u};
     const uint8 MidAdcPos = NumAdc / 2u + 1u; // 8 ~ 40 - 45 ms
     static uint8 lastAdcPos = 0;
     static uint16 AdcVals[NumAdc] = { 0 };
@@ -356,7 +356,7 @@ static __attribute__((section(".irom0.text"))) uint8 getSensors() {
 
 static __attribute__((section(".irom0.text"))) uint8 getDebouncedFilteredSensors() {
 // Must be odd
-    enum { NumFilt = 23u};
+    enum { NumFilt = 19u};
     const uint8 MidSetCountThreshold =  7 * NumFilt / 8u + 1u;
     const uint8 IrCountThreshold = 3; // Safety first
     static uint8 lastSensorPos = 0;
@@ -422,8 +422,8 @@ static __attribute__((section(".irom0.text"))) void currentCheck(uint16 const ad
         returnIdle();
     } else if(!eastRunning && !westRunning) {
         if(adc < IdleThreshold) {
-            returnIdle();
             debugLog("Check adc connection. Expecting idle current, got %d %02x", adc, mainState);
+            returnIdle();
         }
     } 
     if(minAdc > adc) {
@@ -796,11 +796,12 @@ static __attribute__((section(".irom0.text"))) void web_config_client_recv_cb(vo
                                  pespconn->proto.tcp->remote_ip[3], pespconn->proto.tcp->remote_port);
 
     if(data == strstr(data, "GET /stop ")) {
+        debugLog("Got stop.");
         returnIdle();
         debugLog("Got stop from %s", remoteIpAndPort);
     } else if(data == strstr(data, "GET /reset ")) {
-        returnIdle();
         debugLog("Got reboot.");
+        returnIdle();
         system_restart();
         for(;;) {
         }
@@ -993,15 +994,16 @@ static __attribute__((section(".irom0.text"))) void masterRecvData(void *arg, ch
 
         if(data[0] == 'u' && data[1] == 'p' && data[2] == 'd' && data[3] == 'a') {
             lastMasterTick = system_get_time();
-            returnIdle();
             debugLog("Got update.");
+            returnIdle();
             rboot_ota_start(otaCompletedCb);
         }
 
         if(data[0] == 'b' && data[1] == 'o' && data[2] == 'o' && data[3] == 't') {
             lastMasterTick = system_get_time();
-            returnIdle();
             system_restart();
+            debugLog("Got boot.");
+            returnIdle();
             for(;;) {
             }
         }
