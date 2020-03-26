@@ -39,7 +39,7 @@ static char const idleOptions[] = "\
 
 static char const webDoorOpenHtml[] = "HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: max-age=0\r\nContent-Type: text/html\r\nX-HttpTimestamp: %08x\r\n\r\n\
 <!DOCTYPE html><head></head><meta name='viewport' content='width=device-width, initial-scale=1'><style>a.button {\
--webkit-appearance: button; -moz-appearance: button; appearance: button; text-decoration: none; color: initial;}</style><body style='background-color:black;color:green;'>\
+-webkit-appearance: button; -moz-appearance: button; appearance: button; text-decoration: none; background-color: black; color: green;}</style><body style='background-color:black;color:green;'>\
 <a href='/stop' class='button'>STOP</a><p/>\
 %s\
 UT %d:%02d:%02d A %d M %d S %d dB</p>\
@@ -140,6 +140,7 @@ enum {
     WEST_ACTIVE = (1u << 10u),
 } mainState = IDLE;
 
+static const u32 activeMask = (EAST_ACTIVE | WEST_ACTIVE);
 static uint32 mainTick = 0u;
 
 void  __attribute__((section(".irom0.text"))) debugLog(char const* const format, ...) {
@@ -259,11 +260,11 @@ static __attribute__((section(".irom0.text"))) void returnIdle() {
 
 static __attribute__((section(".irom0.text"))) void notifyClose(int mask) {
     debugLog("notifyClosewith state %02x mask %d", mainState, mask);
+    suppressEastMessage = FALSE;
+    suppressWestMessage = FALSE;
+    insideSensorTriggered = FALSE;
+    frontSensorTriggered = FALSE;
     if(IDLE == mainState) {
-        suppressEastMessage = FALSE;
-        suppressWestMessage = FALSE;
-        insideSensorTriggered = FALSE;
-        frontSensorTriggered = FALSE;
         if(BOTH_GATES == mask || EAST_GATE == mask) { 
             mainState = CLOSING | STARTING_EAST;
             if(EAST_GATE == mask) {
@@ -299,12 +300,13 @@ static __attribute__((section(".irom0.text"))) void notifyClose(int mask) {
 
 static  __attribute__((section(".irom0.text"))) void notifyOpen(int mask, int8 dc) {
     debugLog("notifyOpen with state %02x mask %d dc %d", mainState, mask, dc);
+    suppressEastMessage = FALSE;
+    suppressWestMessage = FALSE;
+    insideSensorTriggered = FALSE;
+    frontSensorTriggered = FALSE;
+
     if(IDLE == mainState) {
         detectionCounter = dc;
-        suppressEastMessage = FALSE;
-        suppressWestMessage = FALSE;
-        insideSensorTriggered = FALSE;
-        frontSensorTriggered = FALSE;
         if(BOTH_GATES == mask || EAST_GATE == mask) { 
             mainState = OPENING | STARTING_EAST;
             if(EAST_GATE == mask) {
@@ -439,24 +441,14 @@ static __attribute__((section(".irom0.text"))) void transitionToOpen(uint32 cons
     openEventStartTick = currMsTick;
     eastGateEventStartTick = currMsTick;
     westGateEventStartTick = currMsTick;
-    if((mainState & EAST_ONLY) == EAST_ONLY) {
-        mainState = OPENED | EAST_ONLY;
-    } else if((mainState & EAST_ONLY) == WEST_ONLY) {
-        mainState = OPENED | WEST_ONLY;
-    } else {
-        mainState = OPENED;
-    }
+    insideSensorTriggered = FALSE;
+    frontSensorTriggered = FALSE;
+    mainState = OPENED;
     getAndUpdateMedianFilteredAdc(TRUE);
 }
 
-static __attribute__((section(".irom0.text"))) void processState(uint32 const currMsTick, uint8 const sensors, uint16 const adc) {
-    bool eastOpen = FALSE;
-    bool westOpen = FALSE;
-    bool eastClose = FALSE;
-    bool westClose = FALSE;
+static bool checkSensonsImpeded(uint32 const currMsTick, uint8 const sensors) {
     bool impeded = FALSE;
-    u32 prevMainstate = mainState;
-    const u32 activeMask = (EAST_ACTIVE | WEST_ACTIVE);
 
     if(insideSensorTriggered && !frontSensorTriggered && isSensorActive(sensors, FrontIr)) {
         debugLog("Detected someone leaving %d %02x", detectionCounter, mainState);
@@ -481,25 +473,41 @@ static __attribute__((section(".irom0.text"))) void processState(uint32 const cu
     }
 
     if(isSensorActive(sensors, InsideIr)) {
+        if(!insideSensorTriggered) {
+            debugLog("Inside sensor activated");
+        }
         insideSensorTriggered = TRUE;
         impeded = TRUE;
         mainState = mainState | PAUSED;
     }
     if(isSensorActive(sensors, FrontIr)) {
+        if(!frontSensorTriggered) {
+            debugLog("Front sensor activated");
+        }
         frontSensorTriggered = TRUE;
         impeded = TRUE;
         mainState = mainState | PAUSED;
     }
 
+
+
     if(!isSensorActive(sensors, InsideIr) && !isSensorActive(sensors, FrontIr) &&
         insideSensorTriggered && frontSensorTriggered) {
         debugLog("Nobody in detection area %02x", mainState);
-        insideSensorTriggered = FALSE;
-        frontSensorTriggered = FALSE;
         NoWaitForPause = TRUE;
     }
 
-    if(impeded) {
+    return impeded;
+}
+
+static __attribute__((section(".irom0.text"))) void processState(uint32 const currMsTick, uint8 const sensors, uint16 const adc) {
+    bool eastOpen = FALSE;
+    bool westOpen = FALSE;
+    bool eastClose = FALSE;
+    bool westClose = FALSE;
+    u32 prevMainstate = mainState;
+
+    if(checkSensonsImpeded(currMsTick,sensors)) {
         lastPauseTick = currMsTick;
     } else if((PAUSED & mainState) == PAUSED) {
         uint32 elapsed = currMsTick - lastPauseTick;
@@ -508,8 +516,6 @@ static __attribute__((section(".irom0.text"))) void processState(uint32 const cu
             debugLog("Pause timer expired state is %02x", mainState);
             suppressEastMessage = FALSE;
             suppressWestMessage = FALSE;
-            insideSensorTriggered = FALSE;
-            frontSensorTriggered = FALSE;
             eastGateEventStartTick = currMsTick;
             westGateEventStartTick = currMsTick;
             mainState = mainState & ~(STARTING_WEST | STARTING_WEST | PAUSED);
@@ -916,7 +922,7 @@ static __attribute__((section(".irom0.text"))) void web_config_client_connected_
     os_snprintf(remoteIpAndPort, sizeof(remoteIpAndPort), "%d.%d.%d.%d:%d", pespconn->proto.tcp->remote_ip[0],
                                  pespconn->proto.tcp->remote_ip[1], pespconn->proto.tcp->remote_ip[2],
                                  pespconn->proto.tcp->remote_ip[3], pespconn->proto.tcp->remote_port);
-    debugLog("Connection from %s", remoteIpAndPort);
+    debugLog("Connect from %s", remoteIpAndPort);
     espconn_regist_recvcb(pespconn,     web_config_client_recv_cb);
     espconn_regist_sentcb(pespconn,     web_config_client_sent_cb);
     espconn_regist_disconcb(pespconn,   web_config_client_disconnect_cb);
