@@ -441,8 +441,6 @@ static __attribute__((section(".irom0.text"))) void transitionToOpen(uint32 cons
     openEventStartTick = currMsTick;
     eastGateEventStartTick = currMsTick;
     westGateEventStartTick = currMsTick;
-    insideSensorTriggered = FALSE;
-    frontSensorTriggered = FALSE;
     mainState = OPENED;
     getAndUpdateMedianFilteredAdc(TRUE);
 }
@@ -454,21 +452,27 @@ static bool checkSensonsImpeded(uint32 const currMsTick, uint8 const sensors) {
         debugLog("Detected someone leaving %d %02x", detectionCounter, mainState);
         mainState = mainState & ~(EAST_ONLY | WEST_ONLY | OPENING | OPENED | activeMask);
         NoWaitForPause = TRUE;
-        --detectionCounter;
-        if(detectionCounter <= 0) { 
-            mainState = mainState | CLOSING;
-        } else {
-            transitionToOpen(currMsTick);
-        }
+        if(detectionCounter > 0 ) {
+            --detectionCounter;
+            if(detectionCounter <= 0) { 
+                mainState = mainState | CLOSING;
+            } else {
+                transitionToOpen(currMsTick);
+            }
+       }
     }
+
     if(frontSensorTriggered && !insideSensorTriggered && isSensorActive(sensors, InsideIr)) {
         debugLog("Detected someone entering %d %02x", detectionCounter, mainState);
         mainState = mainState & ~(EAST_ONLY | WEST_ONLY | OPENING | OPENED | activeMask);
-        --detectionCounter;
-        if(detectionCounter <= 0) {
-            mainState = mainState | CLOSING;
-        } else {
-            transitionToOpen(currMsTick);
+        NoWaitForPause = TRUE;
+        if(detectionCounter > 0 ) {
+            --detectionCounter;
+            if(detectionCounter <= 0) {
+                mainState = mainState | CLOSING;
+            } else {
+                transitionToOpen(currMsTick);
+            }
         }
     }
 
@@ -489,12 +493,12 @@ static bool checkSensonsImpeded(uint32 const currMsTick, uint8 const sensors) {
         mainState = mainState | PAUSED;
     }
 
-
-
     if(!isSensorActive(sensors, InsideIr) && !isSensorActive(sensors, FrontIr) &&
         insideSensorTriggered && frontSensorTriggered) {
         debugLog("Nobody in detection area %02x", mainState);
         NoWaitForPause = TRUE;
+        insideSensorTriggered = FALSE;
+        frontSensorTriggered = FALSE;
     }
 
     return impeded;
@@ -814,7 +818,7 @@ static __attribute__((section(".irom0.text"))) void web_config_client_recv_cb(vo
     } else if(data == strstr(data, "GET /open ")) {
         debugLog("Got open from %s", remoteIpAndPort);
         espconn_sendto(masterConn, BING, sizeof(BING));
-        notifyOpen(BOTH_GATES, 0);
+        notifyOpen(BOTH_GATES, 1);
     } else if(data == strstr(data, "GET /util ")) {
         debugLog("Got util from %s", remoteIpAndPort);
         espconn_sendto(masterConn, BING, sizeof(BING));
@@ -822,15 +826,15 @@ static __attribute__((section(".irom0.text"))) void web_config_client_recv_cb(vo
     } else if(data == strstr(data, "GET /rand ")) {
         debugLog("Got rand from %s", remoteIpAndPort);
         espconn_sendto(masterConn, BING, sizeof(BING));
-        notifyOpen((os_random() & 0x1u) == 0u ? EAST_GATE : WEST_GATE, 0);
+        notifyOpen((os_random() & 0x1u) == 0u ? EAST_GATE : WEST_GATE, 1);
     } else if(IDLE == mainState && data == strstr(data, "GET /openeast ")) {
         debugLog("Got open east from %s", remoteIpAndPort);
         espconn_sendto(masterConn, BING, sizeof(BING));
-        notifyOpen(EAST_GATE, 0);
+        notifyOpen(EAST_GATE, 1);
     } else if(IDLE == mainState && data == strstr(data, "GET /openwest ")) {
         debugLog("Got open west from %s", remoteIpAndPort);
         espconn_sendto(masterConn, BING, sizeof(BING));
-        notifyOpen(WEST_GATE, 0);
+        notifyOpen(WEST_GATE, 1);
     } else if(IDLE == mainState && data == strstr(data, "GET /close ")) {
         debugLog("Got close from %s", remoteIpAndPort);
         espconn_sendto(masterConn, BING, sizeof(BING));
@@ -953,7 +957,7 @@ static __attribute__((section(".irom0.text"))) void masterRecvData(void *arg, ch
         if(data[0] == 'o' && data[1] == 'p' && data[2] == 'e' && data[3] == 'n') {
             lastMasterTick = system_get_time();
             debugLog("Got open both.");
-            notifyOpen(BOTH_GATES, 0);
+            notifyOpen(BOTH_GATES, 1);
         }
 
         if(data[0] == 'c' && data[1] == 'l' && data[2] == 's' && data[3] == 'e') {
@@ -965,7 +969,7 @@ static __attribute__((section(".irom0.text"))) void masterRecvData(void *arg, ch
         if(data[0] == 'o' && data[1] == 'p' && data[2] == 'e' && data[3] == 'a') {
             lastMasterTick = system_get_time();
             debugLog("Got open east.");
-            notifyOpen(EAST_GATE, 0);
+            notifyOpen(EAST_GATE, 1);
         }
 
         if(data[0] == 'c' && data[1] == 'l' && data[2] == 'e' && data[3] == 'a') {
@@ -977,7 +981,7 @@ static __attribute__((section(".irom0.text"))) void masterRecvData(void *arg, ch
         if(data[0] == 'o' && data[1] == 'p' && data[2] == 'w' && data[3] == 'e') {
             lastMasterTick = system_get_time();
             debugLog("Got open west.");
-            notifyOpen(WEST_GATE, 0);
+            notifyOpen(WEST_GATE, 1);
         }
 
         if(data[0] == 'c' && data[1] == 'l' && data[2] == 'w' && data[3] == 'e') {
@@ -989,7 +993,7 @@ static __attribute__((section(".irom0.text"))) void masterRecvData(void *arg, ch
         if(data[0] == 'r' && data[1] == 'a' && data[2] == 'n' && data[3] == 'd') {
             lastMasterTick = system_get_time();
             debugLog("Got west.");
-            notifyOpen((os_random() & 0x1u) == 0u ? EAST_GATE : WEST_GATE, 0);
+            notifyOpen((os_random() & 0x1u) == 0u ? EAST_GATE : WEST_GATE, 1);
         }
 
         if(data[0] == 'u' && data[1] == 't' && data[2] == 'i' && data[3] == 'l') {
