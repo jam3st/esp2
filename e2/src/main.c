@@ -435,13 +435,13 @@ static __attribute__((section(".irom0.text"))) void currentCheck(uint16 const ad
 
 }
 
-static __attribute__((section(".irom0.text"))) void transitionToOpen(uint32 const currMsTick) {
+static __attribute__((section(".irom0.text"))) void transitionToState(uint32 const currMsTick, uint32 const newState) {
     debugLog("Opened waiting for movement or timeout");
     activeEventStartTick = currMsTick;
     openEventStartTick = currMsTick;
     eastGateEventStartTick = currMsTick;
     westGateEventStartTick = currMsTick;
-    mainState = OPENED;
+    mainState = newState;
     getAndUpdateMedianFilteredAdc(TRUE);
 }
 
@@ -455,9 +455,9 @@ static bool checkSensonsImpeded(uint32 const currMsTick, uint8 const sensors) {
         if(detectionCounter > 0 ) {
             --detectionCounter;
             if(detectionCounter <= 0) { 
-                mainState = mainState | CLOSING;
+                transitionToState(currMsTick, mainState | CLOSING);
             } else {
-                transitionToOpen(currMsTick);
+                transitionToState(currMsTick, OPENED);
             }
        }
     }
@@ -469,9 +469,9 @@ static bool checkSensonsImpeded(uint32 const currMsTick, uint8 const sensors) {
         if(detectionCounter > 0 ) {
             --detectionCounter;
             if(detectionCounter <= 0) {
-                mainState = mainState | CLOSING;
+                transitionToState(currMsTick, mainState | CLOSING);
             } else {
-                transitionToOpen(currMsTick);
+                transitionToState(currMsTick, OPENED);
             }
         }
     }
@@ -648,7 +648,7 @@ static __attribute__((section(".irom0.text"))) void processState(uint32 const cu
         if( (((mainState & EAST_ONLY) == EAST_ONLY) && !eastOpen) ||
             (((mainState & WEST_ONLY) == WEST_ONLY) && !westOpen) ||
             (!eastOpen && !westOpen) ) {
-                transitionToOpen(currMsTick);
+                transitionToState(currMsTick, OPENED);
         }
     } else if((CLOSING & mainState) == CLOSING) {
         uint32 elapsed = currMsTick - westGateEventStartTick;

@@ -14,6 +14,10 @@ static struct espconn *gatecontConn = NULL;
 extern uint32 system_rf_cal_sector;
 extern uint32 system_param_sector_start;
 extern uint32 system_phy_init_sector;
+static const uint8 LOW = 0x0;
+static const uint8 HIGH = 0x1;
+static uint32 ChipId;
+
 
 void user_pre_init() {
 #if 0
@@ -61,7 +65,8 @@ static void gatecontRecvCb(void *arg, char *data, unsigned short length) {
     os_printf("gatecontRecvCb %s\r\n", data);
     if(data == strstr(data, "HTTP/1.1 200")) {
         os_printf("got ok going to sleep\r\n");
-        system_deep_sleep_instant(0xffffffffull);
+        os_printf("\r\n");
+        system_deep_sleep_instant(0x0u);
     }
 
 }
@@ -119,15 +124,25 @@ static void wifi_event_cb(System_Event_t *evt) {
     }
 }
 
-
 static void timerCb(void* arg) {
-    static bool toggle = FALSE;
-    GPIO_OUTPUT_SET(D4, toggle);
-    toggle = !toggle;
+    static uint8 toggle = 0;
+    GPIO_OUTPUT_SET(D4, 0u != toggle);
+    if(++toggle > 3) {
+        toggle = 0;
+        os_printf("\
+                                                                                                                                \
+                                                                                                                                \
+                                                                                                                                \
+                                                                                                                            \r\n\
+");
+    }
+
     --count;
-    os_printf("CHIPPPP LED OUT FOR NON LED MODEL\r\n");
+
     if(0 == count) {
-        system_deep_sleep_instant(0xffffffffull);
+        os_printf("Timedout with count zero\r\n");
+        os_printf("\r\n");
+        system_deep_sleep_instant(0x0u);
     }
 }
 
@@ -138,19 +153,18 @@ void user_init() {
     struct station_config stationConf;
     uint8_t mac[6];
     struct rst_info* resetInfo = system_get_rst_info();
-    uint32 ChipId = system_get_chip_id();
-
- /// CHANGE THIS FOR OUT
+    ChipId = system_get_chip_id();
 
     system_set_os_print(1);
+    os_printf("User init %d\r\n", resetInfo->reason);
+    if(REASON_DEEP_SLEEP_AWAKE != resetInfo->reason) {
+        os_printf("Reset reason %d goind to sleep\r\n", resetInfo->reason);
+        system_deep_sleep_instant(0x0u);
+    }
     system_deep_sleep_set_option(0);
     system_phy_set_powerup_option(3);
     system_phy_set_max_tpw(82);
 
-    if(REASON_DEEP_SLEEP_AWAKE != resetInfo->reason) {
-        os_printf("Reset reason %d goind to sleep\n", resetInfo->reason);
-        system_deep_sleep_instant(0xffffffffull);
-    }
     wifi_station_set_auto_connect(1);
     wifi_set_event_handler_cb(wifi_event_cb);
     wifi_set_opmode(STATION_MODE);
@@ -176,7 +190,7 @@ void user_init() {
     wifi_set_ip_info(STATION_IF, &info);
  
     os_memset(&stationConf, 0, sizeof(stationConf));
-    count = 4 * 30;
+    count = 4 * 60;
     os_timer_setfn(&ptimer, timerCb, 0);
     os_timer_arm(&ptimer, 256, 1);
 }
